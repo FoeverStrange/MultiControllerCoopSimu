@@ -1,43 +1,62 @@
-import random
+#!/usr/bin/env python
+from __future__ import print_function
+
+import sys
 import time
+from functools import partial
+
+sys.path.append("../")
+from pysyncobj import SyncObj, replicated
 
 
-class Node:
-    def __init__(self, id):
-        self.id = id
-        self.state = "follower"  # initial state
-        self.voted_for = None
-        self.timeout = random.randint(5, 10)  # random timeout between 150ms and 300ms
-        self.election_timer = 0
+class TestObj(SyncObj):
 
-    def tick(self):
-        self.election_timer += 1
-        if self.state == "follower":
-            if self.election_timer >= self.timeout:
-                self.start_election()
-        elif self.state == "candidate":
-            # In a real implementation, a candidate would send RPC requests to other nodes here
-            # For simplicity, we just simulate the process and assume the node wins the election
-            self.win_election()
+    def __init__(self, selfNodeAddr, otherNodeAddrs):
+        super(TestObj, self).__init__(selfNodeAddr, otherNodeAddrs)
+        self.__counter = 0
 
-    def start_election(self):
-        self.state = "candidate"
-        self.voted_for = self
-        self.election_timer = 0
-        print(f"Node {self.id} started an election")
+    @replicated
+    def incCounter(self):
+        self.__counter += 1
+        return self.__counter
 
-    def win_election(self):
-        self.state = "leader"
-        print(f"Node {self.id} won the election")
+    @replicated
+    def addValue(self, value, cn):
+        self.__counter += value
+        return self.__counter, cn
+
+    def getCounter(self):
+        return self.__counter
 
 
-def simulate_election(n, ticks):
-    nodes = [Node(i) for i in range(1, n + 1)]
-    for _ in range(ticks):
-        for node in nodes:
-            node.tick()
-            print(f"Node {node.id} is now a {node.state}")
-        time.sleep(0.1)  # Sleep for 100ms between each tick
+def onAdd(res, err, cnt):
+    print('onAdd %d:' % cnt, res, err)
 
-if __name__ == "__main__":
-    simulate_election(3, 1000)  # Simulate an election with 5 nodes over 1000 ticks
+# 需先 pip install pysyncobj
+# 然后 python raftElection.py 10000 10001 10002 10003 10004
+# https://github.com/bakwc/PySyncObj
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        print('Usage: %s self_port partner1_port partner2_port ...' % sys.argv[0])
+        sys.exit(-1)
+
+    port = int(sys.argv[1])
+    partners = ['localhost:%d' % int(p) for p in sys.argv[2:]]
+    o = TestObj('localhost:%d' % port, partners)
+    n = 0
+    old_value = -1
+    while True:
+        # time.sleep(0.005)
+        time.sleep(0.5)
+        if o.getCounter() != old_value:
+            old_value = o.getCounter()
+            print(old_value)
+        if o._getLeader() is None:
+            continue
+        # if n < 2000:
+        if n < 20:
+            o.addValue(10, n, callback=partial(onAdd, cnt=n))
+        n += 1
+        # if n % 200 == 0:
+        # if True:
+        #    print('Counter value:', o.getCounter(), o._getLeader(), o._getRaftLogSize(), o._getLastCommitIndex())
