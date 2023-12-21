@@ -2,61 +2,83 @@
 from __future__ import print_function
 
 import sys
-import time
-from functools import partial
-
 sys.path.append("../")
-from pysyncobj import SyncObj, replicated
+from pysyncobj import SyncObj, SyncObjConf, replicated
+from multiprocessing import Process
 
 
-class TestObj(SyncObj):
+def run_instance(port):
+    # 将端口号转换为字符串格式，并构造selfAddr和partners
+    selfAddr = f'localhost:{port}'
+    partners = [f'localhost:{port + 1}'] if port % 2 == 0 else [f'localhost:{port - 1}']
 
-    def __init__(self, selfNodeAddr, otherNodeAddrs):
-        super(TestObj, self).__init__(selfNodeAddr, otherNodeAddrs)
-        self.__counter = 0
+    global _g_kvstorage
+    _g_kvstorage = KVStorage(selfAddr, partners)
+    # 在此处添加实例的运行逻辑
+
+class KVStorage(SyncObj):
+    def __init__(self, selfAddress, partnerAddrs):
+        cfg = SyncObjConf(dynamicMembershipChange = True)
+        super(KVStorage, self).__init__(selfAddress, partnerAddrs, cfg)
+        self.__data = {}
 
     @replicated
-    def incCounter(self):
-        self.__counter += 1
-        return self.__counter
+    def set(self, key, value):
+        print("<<<set %s = %s" % (key, value))
+        self.__data[key] = value
 
     @replicated
-    def addValue(self, value, cn):
-        self.__counter += value
-        return self.__counter, cn
+    def pop(self, key):
+        self.__data.pop(key, None)
 
-    def getCounter(self):
-        return self.__counter
+    def get(self, key):
+        print("<<<get %s" % key)
+        return self.__data.get(key, None)
+
+_g_kvstorage = None
 
 
-def onAdd(res, err, cnt):
-    print('onAdd %d:' % cnt, res, err)
-
-# 需先 pip install pysyncobj
-# 然后 python raftElection.py 10000 10001 10002 10003 10004
-# https://github.com/bakwc/PySyncObj
-if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print('Usage: %s self_port partner1_port partner2_port ...' % sys.argv[0])
+def main():
+    if len(sys.argv) < 2:
+        print('Usage: %s selfHost:port partner1Host:port partner2Host:port ...')
         sys.exit(-1)
 
-    port = int(sys.argv[1])
-    partners = ['localhost:%d' % int(p) for p in sys.argv[2:]]
-    o = TestObj('localhost:%d' % port, partners)
-    n = 0
-    old_value = -1
+    selfAddr = sys.argv[1]
+    if selfAddr == 'readonly':
+        selfAddr = None
+    partners = sys.argv[2:]
+
+    global _g_kvstorage
+    _g_kvstorage = KVStorage(selfAddr, partners)
+
+    def get_input(v):
+        if sys.version_info >= (3, 0):
+            return input(v)
+        else:
+            print("need python2")
+            return
+
     while True:
-        # time.sleep(0.005)
-        time.sleep(0.5)
-        if o.getCounter() != old_value:
-            old_value = o.getCounter()
-            print(old_value)
-        if o._getLeader() is None:
+        cmd = get_input(">> ").split()
+        if not cmd:
             continue
-        # if n < 2000:
-        if n < 20:
-            o.addValue(10, n, callback=partial(onAdd, cnt=n))
-        n += 1
-        # if n % 200 == 0:
-        # if True:
-        #    print('Counter value:', o.getCounter(), o._getLeader(), o._getRaftLogSize(), o._getLastCommitIndex())
+        elif cmd[0] == 'set':
+            # print("set %s = %s" % (cmd[1], cmd[2]))
+            _g_kvstorage.set(cmd[1], cmd[2])
+        elif cmd[0] == 'get':
+            # print("get %s" % cmd[1])
+            print(_g_kvstorage.get(cmd[1]))
+        elif cmd[0] == 'pop':
+            # print("pop %s" % cmd[1])
+            print(_g_kvstorage.pop(cmd[1]))
+        else:
+            print('Wrong command')
+
+
+
+# 需先 pip install pysyncobj
+# 然后 python raftElection.py localhost:4321 localhost:4322
+# python raftElection.py localhost:4322 localhost:4321
+# https://github.com/bakwc/PySyncObj
+if __name__ == '__main__':
+    main()
