@@ -1,0 +1,2 @@
+set Key1 Value1
+get Key1
