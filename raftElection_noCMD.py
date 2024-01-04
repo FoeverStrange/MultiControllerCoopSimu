@@ -2,6 +2,7 @@
 from __future__ import print_function
 
 import sys
+import time
 
 sys.path.append("../")
 from pysyncobj import SyncObj, SyncObjConf, replicated
@@ -74,7 +75,7 @@ def KVStorageServer(selfAddr, partners):
     _g_kvstorage = KVStorage(selfAddr, partners)
 #     维护一个时间键值对，每过1秒，更新一次时间
 #     用于判断是否需要进行选举
-    import time
+
     while True:
         time.sleep(1)
         _g_kvstorage.set('time', time.time())
@@ -83,4 +84,4 @@ def KVStorageServer(selfAddr, partners):
 
 # https://github.com/bakwc/PySyncObj
 if __name__ == '__main__':
-    KVStorageStart()
+    pass
