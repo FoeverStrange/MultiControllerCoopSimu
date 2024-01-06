@@ -10,5 +10,4 @@ from raftElection_noCMD import *
 
 # https://github.com/bakwc/PySyncObj
 if __name__ == '__main__':
-    # 聆听者
-    KVStorageStart('localhost:4321', ['localhost:4322','localhost:4323'])
+    KVStorageServer('localhost:4323', ['localhost:4322','localhost:4321'])
