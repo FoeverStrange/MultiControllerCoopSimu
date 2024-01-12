@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-from __future__ import print_function
 
 import sys
 import time
+from datetime import datetime # 用于获取当前时间
+import re  # 用于正则表达式匹配
 
 sys.path.append("../")
 from pysyncobj import SyncObj, SyncObjConf, replicated
@@ -10,35 +11,32 @@ from multiprocessing import Process
 import KmeansClustering as kc
 import random
 
-
-def run_instance(port):
-    # 将端口号转换为字符串格式，并构造selfAddr和partners
-    selfAddr = f'localhost:{port}'
-    partners = [f'localhost:{port + 1}'] if port % 2 == 0 else [f'localhost:{port - 1}']
-
-    global _g_kvstorage
-    _g_kvstorage = KVStorage(selfAddr, partners)
-    # 在此处添加实例的运行逻辑
-
-
 class KVStorage(SyncObj):
     def __init__(self, selfAddress, partnerAddrs):
         self.IP = selfAddress.split(':')[0]
         cfg = SyncObjConf(dynamicMembershipChange=True)
         super(KVStorage, self).__init__(selfAddress, partnerAddrs, cfg)
+        self.time_diffs = []  # 用于存储时间差的列表
         self.__data = {}
 
     @replicated
     def set(self, key, value):
-        print("<<<set %s = %s" % (key, value))
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        strForProcess = f"{timestamp} <<<set {key} = {value}"
+        timeDiff = extract_and_calculate_timestamp_diff(strForProcess)
+        print(f'{self.IP} timeDiff:{timeDiff} set {key} = {value}')
+        # print(strForProcess)
         self.__data[key] = value
+        self.time_diffs.append(timeDiff)
+        print(f'{self.IP} avg_time_diffs:{sum(self.time_diffs) / len(self.time_diffs)}')
 
     @replicated
     def pop(self, key):
         self.__data.pop(key, None)
 
     def get(self, key):
-        print("<<<get %s" % key)
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        print(f"{timestamp} <<<get {key}")
         return self.__data.get(key, None)
 
 
@@ -82,19 +80,23 @@ def KVStorageServer(selfAddr, partners):
 #     用于判断是否需要进行选举
     while True:
         time.sleep(5)
-        # _g_kvstorage.set('time', time.time())
-        print(f'{selfAddr} time: {time.time()}')
+
+        # 根据时间戳生成序列号
+        seq = datetime.now()
         # 生成拓扑并同步
         adjacency_matrix, G = getTOPO()
-        _g_kvstorage.set(f'adjacency_matrix:{selfAddr}', adjacency_matrix)
+        timeStamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        _g_kvstorage.set(f't:{timeStamp},adjacency_matrix:{selfAddr}', adjacency_matrix)
 #         生成节点位置并同步
         nodeLocation = getLocation()
-        _g_kvstorage.set(f'nodeLocation:{selfAddr}', nodeLocation)
+        timeStamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        _g_kvstorage.set(f't:{timeStamp},nodeLocation:{selfAddr}', nodeLocation)
 #         生成节点资源并同步
         nodeComputingSituation, nodeStorageSituation, nodeCommunicationSituation = getSituations()
-        _g_kvstorage.set(f'nodeComputingSituation:{selfAddr}', nodeComputingSituation)
-        _g_kvstorage.set(f'nodeStorageSituation:{selfAddr}', nodeStorageSituation)
-        _g_kvstorage.set(f'nodeCommunicationSituation:{selfAddr}', nodeCommunicationSituation)
+        timeStamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        _g_kvstorage.set(f't:{timeStamp},nodeComputingSituation:{selfAddr}', nodeComputingSituation)
+        _g_kvstorage.set(f't:{timeStamp},nodeStorageSituation:{selfAddr}', nodeStorageSituation)
+        _g_kvstorage.set(f't:{timeStamp},nodeCommunicationSituation:{selfAddr}', nodeCommunicationSituation)
         print(f'{selfAddr} sync success')
 
 
@@ -131,6 +133,22 @@ def getLocation():
         nodeLocation[i] = (x, y)  # 将节点的位置和编号存储在字典中
     return nodeLocation
 
+
+def extract_and_calculate_timestamp_diff(s):
+    # 使用正则表达式匹配时间戳
+    timestamps = re.findall(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}', s)
+
+    if len(timestamps) != 2:
+        raise ValueError("字符串中必须恰好包含两个时间戳！")
+
+        # 将字符串时间戳转换为datetime对象
+    end_time = datetime.strptime(timestamps[0], '%Y-%m-%d %H:%M:%S.%f')
+    start_time = datetime.strptime(timestamps[1], '%Y-%m-%d %H:%M:%S.%f')
+
+    # 计算时间戳之间的差值
+    time_diff = (end_time - start_time).total_seconds()
+
+    return time_diff
 # https://github.com/bakwc/PySyncObj
 if __name__ == '__main__':
     pass
